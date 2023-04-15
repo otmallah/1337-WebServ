@@ -3,9 +3,8 @@
 *.txt
 *.out
 webserv
-demos/server.cpp
-index
 nginx.conf
-./main.cpp
-php-cgi
 webserv
+./upload
+index/22.tiff
+index/mia_farouk.mp4

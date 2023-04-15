@@ -1,6 +1,6 @@
-#include "serverParse.hpp"
+#include "Config.hpp"
 
-serverParse::serverParse(const std::vector<std::string> &__fileBuff, int __start)
+Config::serverParse::serverParse(const std::vector<std::string> &__fileBuff, int __start)
 {
     _lastKey = "";
     _serverIsOpened = _locationIsOpened = false;
@@ -9,12 +9,7 @@ serverParse::serverParse(const std::vector<std::string> &__fileBuff, int __start
     _start = __start;
 }
 
-bool isCurlyBracket(const std::string &s)
-{
-    return (s == "{" or s == "}");
-}
-
-void serverParse::handleErrors(const std::string &_fileBuff)
+void Config::serverParse::handleErrors(const std::string &_fileBuff)
 {
     if (isCurlyBracket(_fileBuff) or _fileBuff == "server")
     {
@@ -39,7 +34,7 @@ void serverParse::handleErrors(const std::string &_fileBuff)
     }
 }
 
-std::string serverParse::getKey(const std::string &_fileBuff, int &j)
+std::string Config::serverParse::getKey(const std::string &_fileBuff, int &j)
 {
     std::string key;
     while (_fileBuff[j] && !isWhiteSpace(_fileBuff[j]))
@@ -47,7 +42,7 @@ std::string serverParse::getKey(const std::string &_fileBuff, int &j)
     return key;
 }
 
-void serverParse::getValues(std::vector<std::string> &values,
+void Config::serverParse::getValues(std::vector<std::string> &values,
                             const std::string &_fileBuff, int &j)
 {
     std::string val;
@@ -65,7 +60,7 @@ void serverParse::getValues(std::vector<std::string> &values,
     }
 }
 
-size_t serverParse::parseBlock()
+size_t Config::serverParse::parseBlock()
 {
     size_t i = _start;
 
@@ -101,6 +96,8 @@ size_t serverParse::parseBlock()
         if (key == "}" and _lastKey == "}")
             break;
     }
+    if (locationsCount == 0)
+        error("server block must contain at least one location");
     if (_serverIsOpened or _locationIsOpened)
         error("block not closed");
     insertDirectives();
@@ -108,7 +105,7 @@ size_t serverParse::parseBlock()
     return i;
 }
 
-void serverParse::insertDirectives(void)
+void Config::serverParse::insertDirectives(void)
 {
     data.insert(_cgiPath);
     data.insert(_upload);
@@ -118,9 +115,11 @@ void serverParse::insertDirectives(void)
     data.insert(_serverName);
     data.insert(_allowedMethods);
     data.insert(_upload_path);
+    data.insert(_bodySize);
+    data.insert(_host);
 }
 
-void serverParse::fillEmptyRequiredDirectives(void)
+void Config::serverParse::fillEmptyRequiredDirectives(void)
 {
     for (size_t i = 0; i < locations.size(); i++)
     {
@@ -130,37 +129,18 @@ void serverParse::fillEmptyRequiredDirectives(void)
             locations[i].data["index"] = this->data["index"];
         if (locations[i].data["allowed_methods"].size() == 0)
             locations[i].data["allowed_methods"] = this->data["allowed_methods"];
-        if (locations[i].data["cgi_path"].size() == 0)
-            locations[i].data["cgi_path"] = this->data["cgi_path"];
+        if (locations[i].data["cgi"].size() == 0)
+            locations[i].data["cgi"] = this->data["cgi"];
         if (locations[i].data["upload"].size() == 0)
             locations[i].data["upload"] = this->data["upload"];
         if (locations[i].data["upload_path"].size() == 0)
             locations[i].data["upload_path"] = this->data["upload_path"];
+        if (locations[i].data["body_size"].size() == 0)
+            locations[i].data["body_size"] = this->data["body_size"];
     }
 }
 
-bool serverParse::isWhiteSpace(char c)
-{
-    return (c == ' ' or c == '\t');
-}
-
-void serverParse::error(const std::string &s) const
-{
-    std::cerr << s << std::endl;
-    exit(EXIT_FAILURE);
-}
-
-bool serverParse::isNumber(const std::string &s)
-{
-    for (size_t i = 0; i < s.size(); i++)
-    {
-        if (!isdigit(s[i]))
-            return false;
-    }
-    return true;
-}
-
-void serverParse::fillDirective(const std::string &key,
+void Config::serverParse::fillDirective(const std::string &key,
                                 const std::vector<std::string> &values)
 {
     if (key == "listen")
@@ -176,6 +156,35 @@ void serverParse::fillDirective(const std::string &key,
             _upload = std::make_pair(key, values);
         }
     }
+    else if (key == "host")
+    {
+        if (!_locationIsOpened)
+        {
+            if (values.size() != 1)
+                error("Invalid arguments");
+            _host = std::make_pair(key, values);
+        }
+        else
+            error ("misplaced or invalid directive");
+    }
+    else if (key == "body_size")
+    {
+        if (!_locationIsOpened)
+        {
+            if (values.size() != 1)
+                error("Invalid arguments");
+            if (!isNumber(values.front()))
+                error("Invalid directive arguments"); 
+            _bodySize = std::make_pair(key, values);
+        }
+    }
+    else if (key == "redirect")
+    {
+        if (!_locationIsOpened)
+        {
+            error("invalid or misplaced directive");
+        }
+    }
     else if (key == "upload_path")
     {
         if (!_locationIsOpened)
@@ -185,8 +194,17 @@ void serverParse::fillDirective(const std::string &key,
             _upload_path = std::make_pair(key, values);
         }
     }
-    else if (key == "cgi_path")
-        _cgiPath = std::make_pair(key, values);
+    else if (key == "cgi")
+    {
+        if (!_locationIsOpened)
+        {
+            if (values.size() != 1)
+                error("invalid directive arguments");
+            if (values.front() != "on" && values.front() != "off")
+                error("invalid directive arguments");
+            _cgiPath = std::make_pair(key, values);
+        }
+    }
     else if (key == "root")
     {
         if (!_locationIsOpened)
@@ -232,23 +250,7 @@ void serverParse::fillDirective(const std::string &key,
     }
 }
 
-std::string serverParse::trim(const std::string &s)
-{
-    std::string trimmed;
-    int _start = 0;
-    int end = s.size() - 1;
-    if (end < 0)
-        return "";
-    while (s[_start] && isWhiteSpace(s[_start]))
-        _start++;
-    while (end > 0 && isWhiteSpace(s[end]))
-        end--;
-    while (_start <= end)
-        trimmed += s[_start++];
-    return trimmed;
-}
-
-serverParse::~serverParse()
+Config::serverParse::~serverParse()
 {
     std::map<std::string, std::vector<std::string> >::iterator it = this->data.begin();
     while (it != data.end())
@@ -256,5 +258,7 @@ serverParse::~serverParse()
         it->second.clear();
         ++it;
     }
+    this->errorPages.clear();
+    this->locations.clear();
     this->data.clear();
 }

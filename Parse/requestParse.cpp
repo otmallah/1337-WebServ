@@ -1,145 +1,61 @@
 #include "requestParse.hpp"
 
-void requestParse::parseRequestLine(std::string &s, const std::string &delimiter)
+void requestParse::collectCookies(std::string &headerValue)
 {
-    size_t pos = 0;
-    std::string token;
-    int count = 0;
-    while ((pos = s.find(delimiter)) != std::string::npos)
+    size_t pos;
+    while (true)
     {
-        token = s.substr(0, pos);
-        if (count == 0)
-            this->data.insert(std::make_pair("method", token));
-        if (count == 1)
-            this->data.insert(std::make_pair("path", token));
-        count++;
-        s.erase(0, pos + delimiter.size());
-    }
-    this->data.insert(std::make_pair("version", s));
-}
-
-void requestParse::getHost(std::string &s)
-{
-    size_t pos = 0;
-    pos = s.find(":");
-    std::string token;
-    token = s.substr(0, pos);
-    pos = token.find_last_of(" ");
-    token.erase(0, pos + 1);
-    if (token == "Host")
-    {
-        pos = s.find_last_of(" ");
-        s = s.erase(0, pos + 1);
-        this->data.insert(std::make_pair("host", s));
-    }
-    if (token == "Content-Length")
-    {
-        pos = s.find_last_of(" ");
-        s = s.erase(0, pos + 1);
-        token = "";
-        for (size_t i = 0; i < s.size(); ++i)
-        {
-            if (isdigit(s[i]))
-                token += s[i];
-            else
-                this->data.insert(std::make_pair("content-length", token));
-        }
-    }
-    else if (token == "Content-Type")
-    {
-        token = "";
-        pos = s.find(" ");
-        s = s.erase(0, pos + 1);
-        pos = s.find_last_of(";");
-        if (pos != std::string::npos)
-            s = s.erase(pos, s.size() + 1);
-        this->data.insert(std::make_pair("content-type", s));
-    }
-}
-
-void Body::trimUnwantedLines()
-{
-    size_t pos = 0;
-    for (int i = 0; i < 3; ++i)
-    {
-        pos = content.find("\n", pos) + 1;
+        pos = headerValue.find(";");
         if (pos == std::string::npos)
-            return;
+            break;
+        std::string cookie = headerValue.substr(0, pos);
+        size_t start = cookie.find_first_not_of(" ");
+        size_t end = cookie.find_last_not_of(" ");
+        cookie = cookie.substr(start, end + 1);
+        this->cookies.insert(cookie);
+        headerValue.erase(0, pos + 1);
     }
-
-    size_t last = content.find_last_of("\n");
-    if (last != std::string::npos)
+    if (!headerValue.empty())
     {
-        for (int i = 0; i < 2; ++i)
-        {
-            last = content.find_last_of("\n", last - 1);
-            if (last == std::string::npos)
-                break;
-        }
+        size_t start = headerValue.find_first_not_of(" ");
+        size_t end = headerValue.find_last_not_of(" ");
+        headerValue = headerValue.substr(start, end);
+        this->cookies.insert(headerValue);
     }
-    if (last != std::string::npos && pos <= last)
-        content = content.substr(pos, last - pos);
-}
-
-void Body::setUp()
-{
-    getFileName();
-    getContentType();
-    trimUnwantedLines();
 }
 
-void Body::getFileName()
+void requestParse::setUp(std::string _requestParse)
 {
-    size_t pos;
-    pos = this->content.find("filename=\"");
-    if (pos != std::string::npos)
+    std::stringstream ss(_requestParse);
+    ss >> this->data["method"] >> this->data["path"] >> this->data["version"];
+    std::string headerName, headerValue;
+    while (getline(ss, headerName, ':') && getline(ss, headerValue))
     {
-        pos += 10;
-        for (size_t i = pos; this->content[i]; i++)
-        {
-            if (this->content[i] == '"')
-                break;
-            this->contentName += this->content[i];
-        }
+        if (headerValue.size() > 3)
+            headerValue = headerValue.substr(1, headerValue.size() - 2);
+        removeWhiteSpaces(headerName);
+        if (headerName == "Cookie")
+            collectCookies(headerValue);
+        if (headerName == "Content-Length")
+            this->data["content-length"] = headerValue;
+        else if (headerName == "Host")
+            this->data["host"] = headerValue;
+        else if (headerName == "Content-Type")
+            this->data["content-type"] = headerValue;
     }
+    if (this->data["content-length"].empty() && this->data["method"] != "GET")
+        this->data["transfer-encoding"] = "Chunked";
+    size_t pos = _requestParse.find("\r\n\r\n");
+    if (pos == std::string::npos)
+        return;
+    _requestParse.erase(0, pos + 4);
+    this->body.content = _requestParse;
 }
-void Body::getContentType()
-{
-    size_t pos;
 
-    pos = this->content.find("Content-Type: ");
-    if (pos != std::string::npos)
-    {
-        pos += 14;
-        for (size_t i = pos; this->content[i]; ++i)
-        {
-            if (this->content[i] == '\n')
-                break;
-            this->contentType += this->content[i];
-        }
-    }
-}
-requestParse::requestParse(std::string _requestParse)
-{
-    size_t pos = 0;
-    std::string token;
-    std::string buff(_requestParse);
-    bool isrequestParseLine = true;
-    while ((pos = _requestParse.find("\n")) != std::string::npos)
-    {
-        token = _requestParse.substr(0, pos);
-        if (isrequestParseLine)
-        {
-            isrequestParseLine = false;
-            parseRequestLine(token, " ");
-            continue;
-        }
-        this->getHost(token);
-        _requestParse.erase(0, pos + 1);
-    }
-}
+requestParse::requestParse() {}
 
 requestParse::~requestParse()
 {
     this->data.clear();
+    this->cookies.clear();
 }

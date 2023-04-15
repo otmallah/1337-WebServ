@@ -1,8 +1,13 @@
 #include "Config.hpp"
-#include "serverParse.hpp"
+
+/*
+    constructor that does all the needed work
+    takes the config file name as a parameter
+*/
 Config::Config(std::string s)
 {
     readFileIntoBuff(s);
+
     size_t end = 0;
     while (end < _fileBuff.size())
     {
@@ -10,27 +15,21 @@ Config::Config(std::string s)
         end = server.parseBlock();
         this->servers.push_back(server);
     }
+    if (_fileBuff.size() == 0)
+        error("Empty config file");
 }
 
-std::string Config::trim(const std::string &s)
-{
-    std::string trimmed;
-    int start = 0;
-    int end = s.size() - 1;
-    if (end < 0)
-        return "";
-    while (s[start] && isWhiteSpace(s[start]))
-        start++;
-    while (end > 0 && isWhiteSpace(s[end]))
-        end--;
-    while (start <= end)
-        trimmed += s[start++];
-    return trimmed;
-}
-
+/*
+    reads the given file into a vector of strings
+*/
 void Config::readFileIntoBuff(const std::string &s)
 {
     _configFile.open(s.c_str(), std::fstream::in);
+    if (!_configFile.is_open())
+    {
+        perror("open()");
+        exit(1);
+    }
     std::string tmp;
     while (std::getline(_configFile, tmp))
     {
@@ -40,15 +39,9 @@ void Config::readFileIntoBuff(const std::string &s)
     }
     _configFile.close();
 }
-Config::~Config() {}
 
-bool Config::isWhiteSpace(char c)
-{
-    return (c == ' ' or c == '\t');
-}
+/*
+    clears the vector of servers;
+*/
+Config::~Config() { servers.clear(); }
 
-void Config::error(const std::string &s) const
-{
-    std::cerr << s << std::endl;
-    exit(EXIT_FAILURE);
-}
